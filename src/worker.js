@@ -1,4 +1,4 @@
-const APP_VERSION = '1.0.1';
+const APP_VERSION = '1.0.2';
 
 const WSSS = {
   icao: 'WSSS',
@@ -50,6 +50,12 @@ const WSSL = {
 
 const AIRPORTS = { WSSS, WSSL };
 
+const AIRCRAFT_PROVIDERS = [
+  { name: 'ADSB One', base: 'https://api.adsb.one/v2/point', license: 'provider terms' },
+  { name: 'adsb.lol', base: 'https://api.adsb.lol/v2/point', license: 'ODbL 1.0' },
+  { name: 'Airplanes.live', base: 'https://api.airplanes.live/v2/point', license: 'provider terms' }
+];
+
 function json(data, status = 200, extra = {}) {
   return new Response(JSON.stringify(data), {
     status,
@@ -66,23 +72,25 @@ function clamp(n, min, max) { return Math.min(max, Math.max(min, n)); }
 function finiteNumber(v) { const n = Number(v); return Number.isFinite(n) ? n : null; }
 function cleanFlight(v) { return typeof v === 'string' ? v.trim() : ''; }
 
-async function fetchJson(url, { ttl = 0, headers = {} } = {}) {
+async function fetchJson(url, { ttl = 0, headers = {}, timeoutMs = 6500 } = {}) {
   const cache = caches.default;
   const cacheKey = new Request(url, { method: 'GET' });
   if (ttl > 0) {
     const cached = await cache.match(cacheKey);
     if (cached) return cached.json();
   }
+
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 9000);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, {
-      headers: { 'accept': 'application/json', 'user-agent': 'SkyScan/1.0', ...headers },
+      headers: { accept: 'application/json', ...headers },
       signal: controller.signal
     });
     if (!res.ok) throw new Error(`Upstream ${res.status}`);
-    const clone = res.clone();
+
     if (ttl > 0) {
+      const clone = res.clone();
       const cacheable = new Response(clone.body, clone);
       cacheable.headers.set('cache-control', `public, max-age=${ttl}`);
       await cache.put(cacheKey, cacheable);
@@ -116,6 +124,32 @@ function normalizeAircraft(item) {
   };
 }
 
+async function fetchAircraftWithFailover(lat, lon, radius) {
+  const attempts = [];
+
+  for (const provider of AIRCRAFT_PROVIDERS) {
+    const endpoint = `${provider.base}/${lat}/${lon}/${radius}`;
+    const started = Date.now();
+    try {
+      const data = await fetchJson(endpoint, { ttl: 5, timeoutMs: 5500 });
+      const aircraft = Array.isArray(data?.ac) ? data.ac.map(normalizeAircraft).filter(Boolean) : [];
+      attempts.push({ provider: provider.name, ok: true, ms: Date.now() - started, count: aircraft.length });
+      return { provider, aircraft, attempts };
+    } catch (err) {
+      attempts.push({
+        provider: provider.name,
+        ok: false,
+        ms: Date.now() - started,
+        error: String(err?.message || err)
+      });
+    }
+  }
+
+  const error = new Error('All aircraft providers unavailable');
+  error.attempts = attempts;
+  throw error;
+}
+
 async function aircraftApi(url) {
   const lat = finiteNumber(url.searchParams.get('lat'));
   const lon = finiteNumber(url.searchParams.get('lon'));
@@ -123,21 +157,26 @@ async function aircraftApi(url) {
   if (lat === null || lon === null || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
     return json({ error: 'Valid lat/lon required.' }, 400);
   }
+
   const qLat = Math.round(lat * 200) / 200;
   const qLon = Math.round(lon * 200) / 200;
-  const endpoint = `https://api.adsb.lol/v2/point/${qLat}/${qLon}/${radius}`;
+
   try {
-    const data = await fetchJson(endpoint, { ttl: 5 });
-    const aircraft = Array.isArray(data.ac) ? data.ac.map(normalizeAircraft).filter(Boolean) : [];
+    const result = await fetchAircraftWithFailover(qLat, qLon, radius);
     return json({
-      source: 'adsb.lol',
-      sourceLicense: 'ODbL 1.0',
+      source: result.provider.name,
+      sourceLicense: result.provider.license,
       fetchedAt: new Date().toISOString(),
       center: { lat, lon, radiusNm: radius },
-      aircraft
+      aircraft: result.aircraft,
+      providerAttempts: result.attempts
     });
   } catch (err) {
-    return json({ error: 'Aircraft feed unavailable.', detail: String(err?.message || err) }, 502);
+    return json({
+      error: 'Aircraft feed unavailable.',
+      detail: String(err?.message || err),
+      providerAttempts: Array.isArray(err?.attempts) ? err.attempts : []
+    }, 502);
   }
 }
 
