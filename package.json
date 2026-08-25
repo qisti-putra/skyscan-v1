@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "check": "node --check src/worker.js && node --check public/app.js"
+    "check": "node --check src/worker.js && node --check public/core.js && node --check public/ui.js && node --check public/main.js"
   },
   "devDependencies": {
     "wrangler": "^4.20.0"
