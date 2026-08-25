@@ -1,64 +1,57 @@
-# SkyScan V1.0.1 — Audit Record
+# SkyScan V1.0.1 — Release Audit
 
 Audit date: 26 August 2026
 
 ## Result before Cloudflare deployment
 
-**PASS — repository is deployment-ready.**
+**PASS — phone-first deployment candidate.**
 
-The exact GitHub repository contains the required Cloudflare Worker configuration, static PWA assets and API worker.
+## Automated checks completed
 
-## Checks completed
-
-- JavaScript syntax passed for the Cloudflare Worker.
-- JavaScript syntax passed for the self-contained browser application.
-- JavaScript syntax passed for the service worker.
+- JavaScript syntax validation passed for `src/worker.js`, `public/core.js`, `public/ui.js`, and `public/main.js`.
 - `manifest.webmanifest` parses as valid JSON.
-- `wrangler.jsonc` parses as valid JSON-compatible configuration.
-- Cloudflare Worker name is `skyscan-v1` and matches the intended project name.
-- Static assets are served from `/public` through Cloudflare Workers Assets.
-- `/api/*` is routed through the Worker before static assets.
-- `/api/health`, `/api/aircraft`, `/api/weather` and `/api/airport` routes are present.
-- Aircraft source is isolated behind the SkyScan Worker rather than called directly from the phone.
-- AviationWeather.gov is isolated behind the Worker, avoiding browser CORS dependency.
-- No paid API key is required by V1.
-- No database is required by V1.
-- No user account/login system is required by V1.
-- Live ATC audio is not embedded, proxied, copied or rebroadcast. SkyScan opens the provider's own page.
-- Service-worker offline caching excludes `/api/*`, preventing stale live aircraft/weather responses from being stored as offline live data.
-- The mobile UI includes Radar, Map, Sky Finder, ATC, Weather and Settings views.
-- The interface includes GPS and manual-coordinate fallback.
-- Runway and ATC outputs are labelled as likely/inferred rather than authoritative ATC information.
-- Singapore Changi departure reference was corrected to include Singapore Departure 120.300 MHz.
-- Seletar references were expanded before release.
+- HTML ID audit found no duplicate IDs.
+- Required PWA/static references are present: stylesheet, core/UI/main scripts, manifest, icon, and service worker.
+- Worker runtime mock tests passed for `/api/health`, ADS-B normalization, invalid-coordinate rejection, METAR/TAF pass-through, Changi airport data, and static asset fallback.
+- Headless Chromium UI smoke tests passed at **320, 390, 768 and 1440 px** widths.
+- Demo aircraft rendered at every tested width.
+- “What's That Plane?” selected an aircraft successfully.
+- Radar, Map, Sky, ATC, Weather and More panels all switched successfully.
+- Manual coordinate entry updated the radar centre successfully.
+- No page-level horizontal overflow was detected at the tested widths.
+- Final browser smoke test produced **0 JavaScript page errors and 0 console errors** in the self-contained audit environment.
 
-## Data-contract verification
+## Corrections made during audit
 
-The current adsb.lol documentation still exposes `/v2/point/{lat}/{lon}/{radius}` for aircraft surrounding a point up to 250 NM and states the public API/data license as ODbL.
+- Removed the stale validation dependency on the old `public/app.js` file.
+- Updated validation for the phone-edition `core.js`, `ui.js`, and `main.js` modules.
+- Updated offline caching to include all first-party phone-edition assets.
+- Normalized `public/index.html` and moved visual rules to a dedicated responsive stylesheet.
+- Added dynamic ATC airport-code context instead of permanently displaying WSSS.
+- Added live-session aircraft trail rendering to Map Mode.
+- Added selected-aircraft highlighting in Map Mode.
+- Preserved graceful map-library failure behaviour so Radar Mode remains usable if MapLibre cannot load.
+- Preserved explicit “likely/inference” wording for runway, flight-phase and ATC-service predictions.
+- Kept aircraft and weather providers behind the SkyScan Worker instead of calling them directly from the phone.
+- Kept third-party ATC audio external; SkyScan does not proxy, embed or rebroadcast it.
 
-AviationWeather.gov currently exposes worldwide METAR and TAF JSON endpoints under `/api/data` and requests responsible/rate-limited use.
+## Production checks still requiring HTTPS deployment
 
-## Architecture amendment made during audit
+These require the real Cloudflare URL and the user's iPhone:
 
-The original multi-file front end was simplified into one self-contained `public/index.html`. This removes two extra first-party asset dependencies and lowers the chance of missing-file deployment errors during phone-only management.
-
-The PWA service-worker cache list was amended to match this self-contained structure.
-
-## Remaining external gate
-
-A true production smoke test can only be completed after the GitHub repository is connected to the user's Cloudflare account and deployed. After deployment, verify:
-
-1. `/api/health` returns `ok: true`.
-2. SkyScan shows `LIVE` rather than `DEMO`.
-3. GPS permission works on the user's iPhone.
-4. Nearby aircraft populate from the live ADS-B source.
-5. WSSS METAR/TAF populate.
-6. MapLibre/OpenFreeMap render on the user's mobile network.
-7. ATC provider link opens externally.
+1. `/api/health` returns `ok: true` and SkyScan changes from `DEMO` to `LIVE`.
+2. iPhone GPS permission and real-location centring work.
+3. Live nearby aircraft populate through the deployed Worker.
+4. Real WSSS METAR/TAF populate through the deployed Worker.
+5. OpenFreeMap/MapLibre render on the user's mobile network.
+6. iPhone device-orientation/compass permission works where supported.
+7. External ATC listening link opens correctly.
 8. Add to Home Screen installs and launches the PWA.
-9. Refreshing/reopening does not surface stale API data.
-10. No Cloudflare build/deploy errors are present.
+9. Service-worker updates do not present stale live API data.
+10. Cloudflare reports no build/deployment errors.
 
-## Important note
+## Safety/product boundary
 
-No software can truthfully be guaranteed error-free under all future browser, provider, network or API changes. This release has passed the checks available before deployment; the post-deployment smoke test is the final release gate.
+SkyScan is for education, situational awareness and plane spotting. It is not a certified navigation, flight-safety, dispatch, surveillance or ATC system. ADS-B coverage can be incomplete or stale. Runway flow, flight phase, aircraft matching and ATC-service recommendations are SkyScan inferences and can be wrong.
+
+**Audit conclusion:** the repository is ready for Cloudflare phone-only deployment and live-device acceptance testing. No software can truthfully be guaranteed error-free against every future browser, provider, network or API change; the post-deployment smoke test is the final release gate.
